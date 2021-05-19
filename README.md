@@ -353,7 +353,7 @@ With `0.0.0.0` and `7000`, we define the host and port, the `flask`-server the w
 
 ## Run with Docker
 
-We provide a Docker image for the simplified and automated setup of this wrapper. For this step, we assume that you have cloned the repository and all of its submodules like mentioned under **step 2** from the **Installation** chapter. Additionally you should have `Docker`>=20.10.5 installed on your `os`.
+We provide a Docker image for the simplified and automated setup of this wrapper. You should have `Docker`>=20.10.5 installed on your `os`.
 
 For building the image, simply run the following command under the *top level directory* of the wrapper-repository:
 
@@ -374,4 +374,4 @@ The container is then providing the mentioned `flask`-app from above as `ENTRYPO
 
 ## License
 
-The package is licensed under GNU General Public License v2 or later (GPLv2+).
+The package is licensed under GNU General Public License v3.
