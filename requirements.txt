@@ -1,0 +1,5 @@
+gmsh==4.7.1
+traits==6.1.1
+flake8==3.8.4
+emmo-cfd @ git+https://github.com/simphony/emmo-cfd.git@v0.1
+cuds_translator @ git+https://github.com/simphony/CUDSTranslator.git@v0.1
