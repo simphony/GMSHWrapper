@@ -6,7 +6,7 @@ import gmsh
 
 from traits.api import (
     ABCHasStrictTraits, Enum, Property,
-    Float, File, List, Dict, Tuple
+    Float, File, List, Dict, Tuple, Int
 )
 
 
@@ -47,13 +47,15 @@ class BaseMesh(ABCHasStrictTraits):
 
     max_extent = Dict
 
+    hexaedric_extent = Dict
+
     inside_location = List
 
     filling_fraction = Float
 
-    z_length = Float(10)
+    z_length = Int(10)
 
-    resolution = Float(5)
+    resolution = Int(5)
 
     @abstractmethod
     def _get_volume(self):
@@ -66,6 +68,52 @@ class BaseMesh(ABCHasStrictTraits):
         the filling material in each direction.
         """
 
+    def _enlarge_extent(self):
+        for index in max_extent.keys():
+            if not self._check_extent(index):
+                self._correct_extent(index)
+
+    def _get_extent(self, index):
+        return [
+            self.max_extent[index][direct] for direct in ["min", "max"]
+        ]
+
+    def _correct_extent(self, index):
+        min_value, max_value = self._shift_hexaedric_extent(index)
+        while True:
+            if max_value - min_value > 0:
+                break
+            else:
+                max_value += self.resolution
+        self.hexaedric_extent[index] = {"min": min_value, "max": max_value}
+
+    def _shift_hexaedric_extent(self, index):
+        min_value, max_value = self._get_extent(index)
+        if max_value < 0:
+            max_value = -np.ceil(-max_value)
+        else:
+            max_value = np.ceil(max_value)
+        if min_value < 0:
+            min_value = -np.ceil(-min_value)
+        else:
+            min_value = np.ceil(min_value)
+        return min_value, max_value
+
+    def _check_extent(self, index):
+        if self._get_ncells_in_direction(index).is_integer():
+            return True
+        else:
+            return False
+
+    def _get_ncells_in_direction(self, index):
+        return float(
+            self.resolution * self._get_length_of_extent(index)
+        )
+
+    def _get_length_of_extent(self, index):
+        min_value, max_value = self._get_extent(index)
+        return max_value - min_value
+
     def _get_convert_to_meters(self):
         """Returns conversion factor depending on units"""
         return CONVERSIONS[self.units]
@@ -73,9 +121,9 @@ class BaseMesh(ABCHasStrictTraits):
 
 class RectangularMesh(BaseMesh):
 
-    x_length = Float(1)
+    x_length = Int(1)
 
-    y_length = Float(1)
+    y_length = Int(1)
 
     source_geo = os.path.join(
         os.path.dirname(__file__),
@@ -143,6 +191,7 @@ class RectangularMesh(BaseMesh):
                 self.y_length*0.5,
                 self.z_length*0.5
             ]
+        self._enlarge_extent()
 
 
 class CylinderMesh(BaseMesh):
@@ -151,7 +200,7 @@ class CylinderMesh(BaseMesh):
 
     direction = Tuple((0, 0, 1.0))
 
-    xy_radius = Float(150)
+    xy_radius = Int(150)
 
     source_geo = os.path.join(
         os.path.dirname(__file__),
@@ -225,6 +274,7 @@ class CylinderMesh(BaseMesh):
                 self.z_length
             ]
         )
+        self._enlarge_extent()
 
 
 class ComplexMesh(BaseMesh):
@@ -382,3 +432,4 @@ class ComplexMesh(BaseMesh):
             max_extent=bounding_box[3:]
         )
         gmsh.finalize()
+        self._enlarge_extent()

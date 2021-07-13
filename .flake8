@@ -1,2 +1,2 @@
 [flake8]
-exclude = deps/*, build/*
+exclude = deps/*, build/* __init__.py

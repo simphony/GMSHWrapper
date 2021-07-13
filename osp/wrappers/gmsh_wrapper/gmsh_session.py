@@ -2,10 +2,13 @@ import os
 from decimal import Decimal
 import numpy as np
 from osp.core.session import WrapperSession
+from osp.core.session.sparql_backend import SPARQLBackend, SparqlResult, SparqlBindingSet
 from osp.core.namespaces import emmo
 from osp.wrappers.gmsh_wrapper.gmsh_engine import (
     RectangularMesh, CylinderMesh, ComplexMesh, CONVERSIONS, extent
 )
+from osp.core.utils import import_cuds
+from .ontology import Ontology
 
 
 MAPPING = extent(
@@ -22,54 +25,197 @@ MAPPING = extent(
 )
 
 
-class GMSHSession(WrapperSession):
+class GMSHSession(WrapperSession, SPARQLBackend):
 
     """
     Session class for GMSH.
     """
 
-    def __init__(self, **kwargs):
-        super().__init__(engine=None, **kwargs)
-        self._geometry = None
-        self._target_path = None
-
     def __str__(self):
         return "OSP-wrapper for GMSH"
 
+    # OVERRIDE
+    def __init__(self, engine=None, **kwargs):
+        super().__init__(engine, **kwargs)
+        self.graph.load(
+            Ontology.get_owl("gmshwrapper-inferred")
+        )
+
+    # OVERRIDE
+    def _sparql(self, query_string):
+        """Execute the given SPARQL query on the graph of the core session.
+        Args:
+            query_string (str): The SPARQL query as a string.
+        """
+        result = self.graph.query(query_string)
+        return GMSHSparqlResult(result, self)
+
+    # OVERRIDE
+    def _load_from_backend(self, uids, expired=None):
+        for uid in uids:
+            if uid in self._registry:
+                yield self._registry.get(uid)
+            else:
+                yield None
+
     def run(self):
-        """Run the computation"""
-        # get CUDS-root object
-        root = self._registry.get(self.root)
-        # get entity for GMSH computation
-        computation = root.get(oclass=emmo.MeshGeneration)
+        pass
+
+    @property
+    def mesh_generation(self):
+        result = self.sparql(f"""SELECT *
+                                 WHERE {{
+                                     ?comp rdf:type <{emmo.MeshGeneration.iri}> .
+                                     ?comp <{emmo.hasInput.iri}> ?inp .
+                                     ?comp <{emmo.hasOutput.iri}> ?outp 
+                                 }}
+                              """)
+        result_iterator = result(comp='cuds', inp='cuds', outp='cuds')
+        try:
+            return next(result_iterator)
+        except StopIteration:
+            return dict()
+
+    @property
+    def geometry(self):
+        result = self.sparql(f"""SELECT * WHERE {{
+            ?comp rdf:type <{emmo.VolumeComputation.iri}> .
+            ?comp <{emmo.hasInput.iri}> ?inp .
+            ?inp rdf:type ?inp_type .
+            ?inp_type rdfs:subClassOf* <{emmo.TwoManifold.iri}>
+
+            optional{{
+
+                ?inp rdf:type <{emmo.Rectangle.iri}> .
+                ?inp <{emmo.hasXLength.iri}> ?x .
+                ?x rdf:type <{emmo.Length.iri}> .
+                ?x <{emmo.hasQuantityValue.iri}> ?x_value .
+                ?x <{emmo.hasReferenceUnit.iri}> ?x_unit .
+                ?x_value rdf:type <{emmo.Real.iri}> 
+
+                optional {{
+
+                    ?x_value <{emmo.hasVariable.iri}> ?x_prefix .
+                    ?x_prefix rdf:type ?type .
+                    ?type rdfs:subClassOf* <{emmo.SIMetricPrefix.iri}>
+
+                }} .
+
+                ?inp <{emmo.hasYLength.iri}> ?y .
+                ?y rdf:type <{emmo.Length.iri}> .
+                ?y <{emmo.hasQuantityValue.iri}> ?y_value .
+                ?y <{emmo.hasReferenceUnit.iri}> ?y_unit .
+                ?y_value rdf:type <{emmo.Real.iri}>
+
+                optional {{
+
+                    ?y_value <{emmo.hasVariable.iri}> ?y_prefix .
+                    ?y_prefix rdf:type ?dtype .
+                    ?dtype rdfs:subClassOf* <{emmo.SIMetricPrefix.iri}>
+
+                }} .
+
+            }} .
+
+            optional{{
+
+                ?inp rdf:type <{emmo.Cylinder.iri}> .
+                ?inp <{emmo.hasXYRadius.iri}> ?radius .
+                ?radius rdf:type <{emmo.Length.iri}> .
+                ?radius <{emmo.hasQuantityValue.iri}> ?radius_value .
+                ?radius <{emmo.hasReferenceUnit.iri}> ?radius_unit .
+                ?radius_value rdf:type <{emmo.Real.iri}>
+
+                optional {{
+
+                    ?x_radius <{emmo.hasVariable.iri}> ?x_prefix .
+                    ?x_prefix rdf:type ?dtype .
+                    ?dtype rdfs:subClassOf <{emmo.SIMetricPrefix.iri}>
+                }}
+
+            }} .         
+
+            ?inp <{emmo.hasZLength.iri}> ?z .
+            ?z rdf:type <{emmo.Length.iri}> .
+            ?z <{emmo.hasQuantityValue.iri}> ?z_value .
+            ?z <{emmo.hasReferenceUnit.iri}> ?z_unit .
+            ?z_value rdf:type <{emmo.Real.iri}>
+            optional {{
+                ?z_value <{emmo.hasVariable.iri}> ?z_prefix .
+                ?z_prefix rdf:type ?dtype .
+                ?dtype rdfs:subClassOf* <{emmo.SIMetricPrefix.iri}>
+            }}
+        }}"""
+        )
+        result_iterator = result(  
+            comp='cuds', inp='cuds',
+            x='cuds', x_value='cuds', x_unit='cuds', x_prefix='cuds',
+            y='cuds', y_value='cuds', y_unit='cuds', y_prefix='cuds',
+            z='cuds', z_value='cuds', z_unit='cuds', z_prefix='cuds',
+            radius='cuds', radius_value='cuds', radius_unit='cuds', 
+            radius_prefix='cuds'            
+        )
+        try: 
+            return next(result_iterator)
+        except StopIteration:
+            return dict()
+
+    @property
+    def filling_volume(self):
+        result = self.sparql(f"""SELECT *
+                                 WHERE {{
+                                     ?comp rdf:type <{emmo.VolumeComputation.iri}> .
+                                     ?comp <{emmo.hasInput.iri}> ?inp .
+                                     ?inp rdf:type <{emmo.Filling.iri}> .
+                                     ?inp <{emmo.hasQuantitativeProperty.iri}> ?quant.
+                                     ?quant rdf:type <{emmo.FillingFraction.iri}> .
+                                     ?quant <{emmo.hasQuantityValue.iri}> ?real .
+                                     ?real rdf:type <{emmo.Real.iri}> .
+                                     ?quant <{emmo.hasReferenceUnit.iri}> ?unit
+                                 }}
+                              """)
+        result_iterator = result(
+            comp='cuds', inp='cuds', quant='cuds', real='cuds', unit='cuds'
+        )
+        try: 
+            return next(result_iterator)
+        except StopIteration:
+            return dict()
+
+
+#        """Run the computation"""
+ #       # get CUDS-root object
+ #       root = self._registry.get(self.root)
+  #      # get entity for GMSH computation
+   #     computation = root.get(oclass=emmo.MeshGeneration)
         # check if mesh generation exits
-        if computation:
+    #    if computation:
             # get geometry data
-            geo_data = computation[0].get(oclass=emmo.GeometryData)
+     #       geo_data = computation[0].get(oclass=emmo.GeometryData)
             # get mesh data
-            mesh_data = computation[0].get(oclass=emmo.MeshData)
+      #      mesh_data = computation[0].get(oclass=emmo.MeshData)
             # get filling data
-            fill_data = computation[0].get(oclass=emmo.FillingData)
+       #     fill_data = computation[0].get(oclass=emmo.FillingData)
             # check if geometry and mesh data exist
-            if geo_data and mesh_data and fill_data:
+        #    if geo_data and mesh_data and fill_data:
                 # run the GMSH Mold model
-                self._parse_mold_data(geo_data[0], mesh_data[0], fill_data[0])
-                if self._target_path:
-                    self._geometry.write_mesh(self._target_path)
-                else:
-                    self._geometry.inspect_file()
-                self._parse_extent(self._geometry.max_extent, mesh_data[0])
-                self._parse_extent(self._geometry.filling_extent, fill_data[0])
-                self._assign_inside_location(mesh_data[0])
-                self._assign_volume(geo_data[0])
-            elif not geo_data:
-                raise ValueError('geometry data not found')
-            elif not mesh_data:
-                raise ValueError('GMSH meta data not found')
-            elif not fill_data:
-                raise ValueError('Filling meta data not found')
-        else:
-            raise ValueError('Currently, only mold models are supported')
+         #       self._parse_mold_data(geo_data[0], mesh_data[0], fill_data[0])
+          #      if self._target_path:
+           #         self._geometry.write_mesh(self._target_path)
+            #    else:
+             #       self._geometry.inspect_file()
+              #  self._parse_extent(self._geometry.max_extent, mesh_data[0])
+              #  self._parse_extent(self._geometry.filling_extent, fill_data[0])
+               # self._assign_inside_location(mesh_data[0])
+               # self._assign_volume(geo_data[0])
+            #elif not geo_data:
+           #     raise ValueError('geometry data not found')
+           # elif not mesh_data:
+            #    raise ValueError('GMSH meta data not found')
+           # elif not fill_data:
+           #     raise ValueError('Filling meta data not found')
+        #else:
+         #   raise ValueError('Currently, only mold models are supported')
 
     def _parse_mold_data(self, geo_data, mesh_data, fill_data):
         mesh_data = self._parse_mesh_data(mesh_data)
@@ -377,18 +523,43 @@ class GMSHSession(WrapperSession):
                 )
         return extent_data
 
-    # OVERRIDE
+
+class GMSHSparqlResult(SparqlResult):
+
+    def __init__(self, query_result, session):
+        """Initialize the result."""
+        self.result = query_result
+        super().__init__(session)
+
     def close(self):
+        """Close the connection."""
         pass
 
-    # OVERRIDE
-    def _store(self, cuds_object):
-        super()._store(cuds_object)
+    def __iter__(self, **kwargs):
+        """Iterate the result."""
+        for row in self.result:
+            yield GMSHSparqlBindingSet(
+                row, self.session, kwargs
+            )
 
-    # OVERRIDE
-    def _load_from_backend(self, uids, expired):
-        for uid in uids:
-            try:
-                yield self._registry.get(uid)
-            except KeyError:
-                yield None
+    def __len__(self):
+        """Compute the number of elements in the result."""
+        return len(self.result)
+
+
+class GMSHSparqlBindingSet(SparqlBindingSet):
+    """A row in the result. Mapping from variable to value."""
+
+    def __init__(self, row, session, datatypes):
+        """Initialize the row."""
+        self.binding_set = row
+        super().__init__(session, datatypes)
+
+    def _get(self, variable_name):
+        return self.binding_set[variable_name]
+
+    def get(self, variable_name):
+        try:
+            return self.__getitem__(variable_name)
+        except KeyError:
+            return None

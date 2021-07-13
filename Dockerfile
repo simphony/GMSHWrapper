@@ -15,7 +15,7 @@ RUN apt-get update \
 
 # copy packages
 COPY osp /home/gmshwrapper/osp
-COPY flask /home/gmshwrapper/flask
+COPY transport_session /home/gmshwrapper/transport_session
 COPY tests /home/gmshwrapper/tests
 COPY examples /home/gmshwrapper/examples
 
@@ -34,12 +34,6 @@ RUN python setup.py install
 RUN python -m flake8
 RUN python -m unittest
 
-# run examples
-WORKDIR /home/gmshwrapper/examples
-RUN python rectangle_example.py
-RUN python cylinder_example.py
-RUN python complex_example.py
-
 #start entrypoint
 WORKDIR /home/gmshwrapper
-ENTRYPOINT ["/bin/bash", "-c", "python3.7 flask/RUN.py"]
+ENTRYPOINT ["/bin/bash", "-c", "python3.7 transport_session/RUN.py"]

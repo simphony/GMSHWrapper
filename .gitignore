@@ -6,3 +6,4 @@ build/
 # Remove VS Code preference directory
 .vscode/
 
+osp/wrappers/gmsh_wrapper/emmo_cfd/*
