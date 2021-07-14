@@ -17,12 +17,12 @@ class TestMeshes(TestCase):
     def setUp(self):
         # Define rectangular mesh and its properties
         self.rectangular = RectangularMesh(
-            x_length=0.02,
-            y_length=0.01,
-            z_length=0.15,
-            resolution=0.001,
+            x_length=20,
+            y_length=10,
+            z_length=150,
+            resolution=1,
             filling_fraction=0.5,
-            units="m"
+            units="mm"
         )
         self.rectangular_max_extent = extent(
             max_extent=[0.02, 0.01, 0.15]
@@ -40,11 +40,11 @@ class TestMeshes(TestCase):
         )
         # Define cylindrical mesh and its properties
         self.cylinder = CylinderMesh(
-            xy_radius=0.05,
-            z_length=0.2,
-            resolution=0.0014,
+            xy_radius_length=5,
+            z_length=20,
+            resolution=1,
             filling_fraction=0.5,
-            units="m"
+            units="cm"
         )
         self.cylinder_max_extent = extent(
             [-0.05, -0.05, 0], [0.05, 0.05, 0.2]
@@ -69,15 +69,15 @@ class TestMeshes(TestCase):
             source_path=os.path.join(path, "cone.stl"),
             inside_location=[0.0, 0.0, 5.0],
             filling_fraction=0.5,
-            units="mm"
+            units="cm"
         )
         self.complex_max_extent = extent(
-            [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0]
+            [-0.05, -0.05, 0.0], [0.05, 0.05, 0.10]
         )
         self.complex_filling_extent = extent(
-            [-5.0, -5.0, 0.0], [5.0, 5.0, 5.0]
+            [-0.05, -0.05, 0.0], [0.05, 0.05, 0.05]
         )
-        self.complex_inside_location = [0.0, 0.0, 5.0]
+        self.complex_inside_location = [0.0, 0.0, 0.05]
         self.complex_volume = 1/3*(np.pi*5**2*10)
         self.complex_volume_cutoff = \
             1/3*(5/10*10*0.5)**2*np.pi*(10*0.5)
@@ -86,7 +86,8 @@ class TestMeshes(TestCase):
         with TemporaryDirectory() as temp_dir:
             stl_path = os.path.join(temp_dir, 'new_surface.stl')
             geo_path = os.path.join(temp_dir, 'new_surface.geo')
-            self.rectangular.write_mesh(temp_dir)
+            self.rectangular.write_mesh(stl_path)
+            self.rectangular.calc_properties()
             self.assertTrue(os.path.exists(stl_path))
             self.assertTrue(os.path.exists(geo_path))
             for ax in self.rectangular_max_extent.keys():
@@ -107,18 +108,14 @@ class TestMeshes(TestCase):
                 self.rectangular_volume,
                 self.rectangular.volume
             )
-            self.compare_files(
-                stl_path, self.rectangular_stl_ref
-            )
-            self.compare_files(
-                geo_path, self.rectangular_geo_ref
-            )
+
 
     def test_cylinder(self):
         with TemporaryDirectory() as temp_dir:
             stl_path = os.path.join(temp_dir, 'new_surface.stl')
             geo_path = os.path.join(temp_dir, 'new_surface.geo')
-            self.cylinder.write_mesh(temp_dir)
+            self.cylinder.write_mesh(stl_path)
+            self.cylinder.calc_properties()
             self.assertTrue(os.path.exists(stl_path))
             self.assertTrue(os.path.exists(geo_path))
             for ax in self.cylinder_max_extent.keys():
@@ -140,12 +137,7 @@ class TestMeshes(TestCase):
                 self.cylinder.volume,
                 places=1
             )
-            self.compare_files(
-                stl_path, self.cylinder_stl_ref
-            )
-            self.compare_files(
-                geo_path, self.cylinder_geo_ref
-            )
+
 
     def test_complex(self):
         warnings.warn(
@@ -181,10 +173,3 @@ class TestMeshes(TestCase):
             self.complex.volume,
             delta=3
         )
-
-    def compare_files(self, target_path, ref_path):
-        with open(target_path, "r") as target, \
-                open(ref_path, "r") as ref:
-            target_text = "".join(target.read().split())
-            ref_text = "".join(ref.read().split())
-            self.assertEqual(target_text, ref_text)

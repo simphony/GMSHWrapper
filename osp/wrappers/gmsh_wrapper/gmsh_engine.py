@@ -6,7 +6,7 @@ import gmsh
 
 from traits.api import (
     ABCHasStrictTraits, Enum, Property,
-    Float, File, List, Dict, Tuple, Int
+    Float, File, List, Dict, Tuple, Int, Str
 )
 
 
@@ -57,6 +57,12 @@ class BaseMesh(ABCHasStrictTraits):
 
     resolution = Int(5)
 
+    target_path = Str
+
+    target_geo = Str
+
+    directory_path = Str
+
     @abstractmethod
     def _get_volume(self):
         """Returns volume of mesh"""
@@ -69,7 +75,7 @@ class BaseMesh(ABCHasStrictTraits):
         """
 
     def _enlarge_extent(self):
-        for index in max_extent.keys():
+        for index in self.max_extent.keys():
             if not self._check_extent(index):
                 self._correct_extent(index)
 
@@ -107,7 +113,7 @@ class BaseMesh(ABCHasStrictTraits):
 
     def _get_ncells_in_direction(self, index):
         return float(
-            self.resolution * self._get_length_of_extent(index)
+            self.resolution * self._get_length_of_extent(index) / self.convert_to_meters
         )
 
     def _get_length_of_extent(self, index):
@@ -133,14 +139,14 @@ class RectangularMesh(BaseMesh):
 
     # OVERRIDE
     def _get_volume(self):
-        return self.x_length * self.y_length * self.z_length
+        return self.x_length * self.y_length * self.z_length \
+        * self.convert_to_meters**3
 
     def write_mesh(self, target_path):
         self.directory_path = os.path.dirname(target_path)
         self.target_path = target_path
         self._write_geo()
         self._write_stl()
-        self._calc_properties()
 
     def _write_geo(self):
         self.target_geo = os.path.join(self.directory_path, 'new_surface.geo')
@@ -161,9 +167,11 @@ class RectangularMesh(BaseMesh):
     def _get_filling_extent(self):
         return extent(
             max_extent=[
-                self.x_length,
-                self.y_length,
-                self.z_length*self.filling_fraction
+                self.convert_to_meters*ax for ax in [
+                    self.x_length,
+                    self.y_length,
+                    self.z_length*self.filling_fraction
+                ]
             ]
         )
 
@@ -174,19 +182,23 @@ class RectangularMesh(BaseMesh):
         gmsh.write(self.target_path)
         gmsh.finalize()
 
-    def _calc_properties(self):
+    def calc_properties(self):
         self.max_extent = extent(
             max_extent=[
+                self.convert_to_meters*ax for ax in [
+                    self.x_length,
+                    self.y_length,
+                    self.z_length
+                ]
+            ]
+        )
+        self.inside_location = [
+            self.convert_to_meters*ax*0.5 for ax in [
                 self.x_length,
                 self.y_length,
                 self.z_length
             ]
-        )
-        self.inside_location = [
-                self.x_length*0.5,
-                self.y_length*0.5,
-                self.z_length*0.5
-            ]
+        ]
         self._enlarge_extent()
 
 
@@ -206,20 +218,23 @@ class CylinderMesh(BaseMesh):
 
     # OVERRIDE
     def _get_volume(self):
-        return np.pi * self.xy_radius_length**2 * self.z_length
+        return np.pi * self.xy_radius_length**2 \
+        * self.z_length * self.convert_to_meters**3
 
     # OVERRIDE
     def _get_filling_extent(self):
         return extent(
             min_extent=[
-                -self.xy_radius_length,
-                -self.xy_radius_length,
+                -self.xy_radius_length*self.convert_to_meters,
+                -self.xy_radius_length*self.convert_to_meters,
                 0
             ],
             max_extent=[
-                self.xy_radius_length,
-                self.xy_radius_length,
-                self.z_length * self.filling_fraction
+                ax*self.convert_to_meters for ax in [
+                    self.xy_radius_length,
+                    self.xy_radius_length,
+                    self.z_length*self.filling_fraction
+                ]
             ]
         )
 
@@ -228,7 +243,6 @@ class CylinderMesh(BaseMesh):
         self.target_path = target_path
         self._write_geo()
         self._write_stl()
-        self._calc_properties()
 
     def _write_geo(self):
         self.target_geo = os.path.join(self.directory_path, 'new_surface.geo')
@@ -250,20 +264,22 @@ class CylinderMesh(BaseMesh):
         gmsh.write(self.target_path)
         gmsh.finalize()
 
-    def _calc_properties(self):
+    def calc_properties(self):
         self.inside_location = [
-            0, 0, 0.5*self.z_length
+            0, 0, 0.5*self.z_length*self.convert_to_meters
         ]
         self.max_extent = extent(
             min_extent=[
-                -self.xy_radius_length,
-                -self.xy_radius_length,
+                -self.xy_radius_length*self.convert_to_meters,
+                -self.xy_radius_length*self.convert_to_meters,
                 0
             ],
             max_extent=[
-                self.xy_radius_length,
-                self.xy_radius_length,
-                self.z_length
+                ax*self.convert_to_meters for ax in [
+                    self.xy_radius_length,
+                    self.xy_radius_length,
+                    self.z_length
+                ]
             ]
         )
         self._enlarge_extent()
@@ -411,17 +427,24 @@ class ComplexMesh(BaseMesh):
             self._inspect_file()
         cutoff_level = (
             self.z_length*cutoff_value +
-            self.max_extent["z"]["min"]
+            self.max_extent["z"]["min"]/self.convert_to_meters
         )
-        return self._calc_volume(cutoff_level)
+        return self._calc_volume(cutoff_level)*self.convert_to_meters**3
 
     def inspect_file(self):
+        self.inside_location = [
+            ax*self.convert_to_meters for ax in self.inside_location
+        ]
         gmsh.initialize()
         gmsh.open(self.source_path)
         bounding_box = gmsh.model.getBoundingBox(2, 1)
         self.max_extent = extent(
-            min_extent=bounding_box[:3],
-            max_extent=bounding_box[3:]
+            min_extent=[
+                ax*self.convert_to_meters for ax in bounding_box[:3]
+            ],
+            max_extent=[
+                ax*self.convert_to_meters for ax in bounding_box[3:]
+            ]
         )
         gmsh.finalize()
         self._enlarge_extent()

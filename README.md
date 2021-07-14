@@ -43,7 +43,7 @@ apt-get update && apt-get install -y ffmpeg libsm6 libxext6 libglu1-mesa-dev lib
 Now clone the wrapper-repository.
 
 ```
-git clone https://github.com/simphony/GMSHWrapper.git
+git clone --recurse-submodules https://github.com/simphony/GMSHWrapper.git
 cd GMSHWrapper
 pip install -r requirements.txt
 python setup.py install
@@ -56,9 +56,8 @@ See the dependency matrix:
 
 | Python Package | Minimum Version           |
 | ------------------- | ----------------- |
-| [`osp-core`](https://github.com/simphony/osp-core)                | 3.5.2-beta       |
-| [`CUDSTranslator`](https://github.com/simphony/CUDSTranslator.git)                | v0.1       |
-| [`EMMO-CFD`](https://github.com/simphony/emmo-cfd.git)                | v0.1       |
+| [`osp-core`](https://github.com/simphony/osp-core.git)                | dev       |
+| [`EMMO-CFD`](https://github.com/simphony/emmo-cfd.git)                | dev       |
 
 ## Unittests
 
@@ -70,247 +69,182 @@ python -m unittest
 
 ## Useage and examples
 
-For the following examples, we are considering the following `python`-imports:
+For the following example, we are considering the following `python`-imports:
 
 ```
 from osp.wrappers.gmsh_wrapper.gmsh_session import GMSHSession
-from osp.wrappers.gmsh_wrapper.gmsh_cuds_translator import Rectangle, Cylinder, Complex
-from osp.core.namespaces import emmo, cuba
+from osp.wrappers.gmsh_wrapper.ontology import Ontology
+from osp.core.utils import pretty_print, import_cuds, sparql
+from osp.core.namespaces import emmo
+from tempfile import TemporaryDirectory
 ``` 
 
-In the first example, we like to generate a `.stl`-file for a rectangle through semantic data structures of `RDF` and `CUDS` within `GMSHSession`.
-For the instantiation of `CUDS`-objects, we use the `Rectangle`-class which is a child from the `CUDSTranslator`.
+Now, we like to generate a `.stl`-file for a cylinder through semantic data structures of `RDF` and `CUDS` within `GMSHSession`.
 
 
 ```
-# start session
-with GMSHSession() as session:
+# get path of ontology-file with individuals to be imported
+ontology_file = Ontology.get_ttl("mold_cylinder_mesh")
 
-    # initialize wrapper
-    wrapper = cuba.Wrapper(session=session)
+# start the session and a temporary directory
+with GMSHSession() as session, TemporaryDirectory() as temp_dir:
 
-    # create rectangle
-    rec = Rectangle(
-        'path/to/my/output/directory',
-        values={
-            'x': 20,
-            'y': 10,
-            'z': 150,
-            'filling_fraction': 0.5,
-            'resolution': 1
-        },
-        units={
-            'lengths': "mm",
-            'resolution': "mm"
-        },
-        session=session
+    # import cuds
+    import_cuds(ontology_file, session=session)
+
+    # first of all, set the file location
+    result = sparql(f"""SELECT * WHERE {{
+        ?comp rdf:type <{emmo.MeshGeneration.iri}> .
+        ?comp <{emmo.hasOutput.iri}> ?mesh .
+        ?file <{emmo.hasProperty.iri}> ?mesh .
+        ?file <{emmo.hasProperty.iri}> ?file_name .
+        ?file <{emmo.hasProperty.iri}> ?file_format .
+        ?file <{emmo.hasProperty.iri}> ?file_path .
+        ?file_name rdf:type <{emmo.String.iri}> .
+        ?file_path rdf:type <{emmo.UnixPath.iri}> .
+        ?file_format rdf:type <{emmo.STL.iri}> 
+        }}""",
+        session
     )
+    for binding_set in result(file='cuds', file_name='cuds', file_path='cuds'):
+        binding_set["file_name"].hasSymbolData = "test_file"
+        binding_set["file_path"].hasSymbolData = temp_dir
 
-    # get the CUDS if emmo.MeshGenetation
-    my_model = rec.get_model()
+    # now, let's set the lengths
+    result = sparql(f"""SELECT * WHERE {{
+        ?inp rdf:type <{emmo.Cylinder.iri}> .
+        ?inp <{emmo.hasXYRadius.iri}> ?xy_radius .
+        ?xy_radius rdf:type <{emmo.Length.iri}> .
+        ?xy_radius <{emmo.hasQuantityValue.iri}> ?xy_radius_value .
+        ?xy_radius <{emmo.hasReferenceUnit.iri}> ?xy_radius_unit .
+        ?xy_radius_value rdf:type <{emmo.Integer.iri}> .
+        ?xy_radius_unit rdf:type <{emmo.Metre.iri}>  .
+        ?inp <{emmo.hasZLength.iri}> ?z .
+        ?z rdf:type <{emmo.Length.iri}> .
+        ?z <{emmo.hasQuantityValue.iri}> ?z_value .
+        ?z <{emmo.hasReferenceUnit.iri}> ?z_unit .
+        ?z_value rdf:type <{emmo.Integer.iri}> .
+        ?z_unit rdf:type <{emmo.Metre.iri}>
+    }}""")
+    for binding_set in result(xy_radius_value='cuds', z_value='cuds'):
+        binding_set["xy_radius_value"].hasNumericalData = 10
+        binding_set["z_value"].hasNumericalData = 20 
 
-    # add the CUDS to the wrapper
-    wrapper.add(my_model, rel=emmo.hasPart)
-
-    # run the computation
+    
+    # run the session
     session.run()
 
-    # get the CUDS of type emmo.MeshGeneration again
-    my_model_with_outputs = wrapper.get(oclass=emmo.MeshGeneration)[0]
+    # query for the meshgeneration-entity
+    result = sparql(f"""SELECT * WHERE {{
+        ?computation rdf:type <{emmo.MeshGeneration.iri}>
+    }}
+    """)
+    for binding_set in result(computation='cuds'):
+        computation = binding_set["computation"]
+
+    # pretty print the output
+    pretty_print(computation)
 
 ```
-The `python`-variable of `my_model` is the `CUDS`-objects of type `MeshGeneration`, which is linked to the ontologized parameters such as lengths, os-paths, resolution etc.
-The variable of `my_model_with_outputs` is the exacly same `CUDS` of type `MeshGeneration`, but with the derived meta-data from the computation. The `.stl` of interest has been generated under the desired output-directory.
 
-In the second example, we would like to generate a `.stl`-file for a cylinder:
-
+The classical output of the GMSH-computation looks like that:
 ```
-with GMSHSession() as session:
-
-    # initialize wrapper
-    wrapper = cuba.Wrapper(session=session)
-
-    # create cylinder
-    cyl = Cylinder(
-        'path/to/my/output/directory',
-        values={
-            'length': 20,
-            'radius': 5,
-            'filling_fraction': 0.5,
-            'resolution': 0.14
-        },
-        units={
-            'lengths': "cm",
-            'resolution': "cm"
-        },
-        session=session
-    )
-
-    # get the CUDS of type emmo.MeshGenetation
-    my_model = cyl.get_model()
-
-    # add the model to the wrapper
-    wrapper.add(my_model, rel=emmo.hasPart)
-
-    # run the computation
-    session.run()
-
-    # get the CUDS of type emmo.MeshGeneration again
-    my_model_with_outputs = wrapper.get(oclass=emmo.MeshGeneration)[0]
+Info    : Reading '/tmp/tmpfo6c9ubd/new_surface.geo'...
+Info    : Done reading '/tmp/tmpfo6c9ubd/new_surface.geo'
+Info    : Meshing 1D...
+Info    : [  0%] Meshing curve 1 (Circle)
+Info    : [ 10%] Meshing curve 2 (Circle)
+Info    : [ 20%] Meshing curve 3 (Circle)
+Info    : [ 30%] Meshing curve 4 (Circle)
+Info    : [ 40%] Meshing curve 8 (Extruded)
+Info    : [ 50%] Meshing curve 9 (Extruded)
+Info    : [ 50%] Meshing curve 10 (Extruded)
+Info    : [ 60%] Meshing curve 11 (Extruded)
+Info    : [ 70%] Meshing curve 13 (Extruded)
+Info    : [ 80%] Meshing curve 14 (Extruded)
+Info    : [ 90%] Meshing curve 18 (Extruded)
+Info    : [100%] Meshing curve 22 (Extruded)
+Info    : Done meshing 1D (Wall 0.0051848s, CPU 0.004891s)
+Info    : Meshing 2D...
+Info    : [  0%] Meshing surface 6 (Transfinite)
+Info    : [ 20%] Meshing surface 15 (Extruded)
+Info    : [ 40%] Meshing surface 19 (Extruded)
+Info    : [ 50%] Meshing surface 23 (Extruded)
+Info    : [ 70%] Meshing surface 27 (Extruded)
+Info    : [ 90%] Meshing surface 28 (Extruded)
+Info    : Done meshing 2D (Wall 0.365484s, CPU 0.365482s)
+Info    : Meshing 3D...
+Info    : Meshing volume 1 (Extruded)
+Info    : Done meshing 3D (Wall 3.34237s, CPU 3.21258s)
+Info    : Optimizing mesh...
+Info    : Done optimizing mesh (Wall 0.0334727s, CPU 0.033285s)
+Info    : 448989 nodes 470002 elements
+Info    : Writing '/tmp/tmpfo6c9ubd/test_file.stl'...
+Info    : Done writing '/tmp/tmpfo6c9ubd/test_file.stl'
 ```
 
-Now, we may print the results `CUDS` with the results of the computation:
+As you may notice, the file can be found under `/tmp/tmpfo6c9ubd/test_file.stl`.
 
-```
-from osp.core.utils import pretty_print
-
-pretty_print(my_model_with_outputs)
-```
-
-The results of this `pretty_print` may look like that:
+The results of the last `pretty_print` (CUDS of the `emmo.MeshGeneration`) may look like that:
 
 ```
 - Cuds object:
-  uuid: 85dd67da-b904-4ee7-9980-7089e709fdec
+  uid: 9a252bd5-86fe-413f-aea4-d80d2deb2b44
   type: emmo.MeshGeneration
   superclasses: emmo.Calculation, emmo.Computation, emmo.EMMO, emmo.Holistic, emmo.Item, emmo.MeshGeneration, emmo.Perspective, emmo.Physical, emmo.Process
   description:
     To Be Determined
 
    |_Relationship emmo.hasInput:
-   | -  emmo.GeometryData cuds object:
-   |    uuid: fe058209-c4cd-4322-8246-aa80902eadee
-   |     |_Relationship emmo.hasQuantitativeProperty:
-   |     | -  emmo.Volume cuds object:
-   |     |    uuid: cf3bf314-1dc7-40fb-8b8f-dd427949eca6
-   |     |     |_Relationship emmo.hasQuantityValue:
-   |     |     | -  emmo.Real cuds object:
-   |     |     |    uuid: f96b30e3-b447-4268-a974-ebf3b9a4a146
-   |     |     |    hasNumericalData: 3e-05
-   |     |     |_Relationship emmo.hasReferenceUnit:
-   |     |       -  emmo.CubicMetre cuds object:
-   |     |          uuid: d755b63f-da2d-4008-96aa-e9fcddfa6043
-   |     |_Relationship emmo.hasXLength:
+   | -  emmo.Cylinder cuds object:
+   |    uid: b96002fb-9b61-4ad4-802c-710aa70ce682
+   |     |_Relationship emmo.hasXYRadius:
    |     | -  emmo.Length cuds object:
-   |     |    uuid: 73cb4f47-9aed-4583-9c75-6930c1769fee
+   |     |    uid: 42eaf8c8-4e21-415c-a0fd-914a3e19f85b
    |     |     |_Relationship emmo.hasQuantityValue:
-   |     |     | -  emmo.Real cuds object:
-   |     |     |    uuid: 7c3715f8-02b1-426f-a140-f84372fcc6d0
-   |     |     |    hasNumericalData: 20
-   |     |     |_Relationship emmo.hasReferenceUnit:
-   |     |       -  emmo.Metre cuds object:
-   |     |       .  uuid: 20cb1885-0a68-4ff0-9dce-8b687264465e
-   |     |       .  hasSymbolData: m
-   |     |       .   |_Relationship emmo.hasPhysicalDimension:
-   |     |       .     -  emmo.LengthDimension cuds object:
-   |     |       .        uuid: 5a2fcc3e-bd8d-4114-a4a3-1e279c02f34b
-   |     |       -  emmo.Milli cuds object:
-   |     |          uuid: df556889-5dfc-443a-9494-01defb51dc0e
-   |     |          hasSymbolData: m
-   |     |_Relationship emmo.hasYLength:
-   |     | -  emmo.Length cuds object:
-   |     |    uuid: 96c8ec21-ba56-403e-ba9b-dfbcbd123d09
-   |     |     |_Relationship emmo.hasQuantityValue:
-   |     |     | -  emmo.Real cuds object:
-   |     |     |    uuid: 52544bcc-f8ad-4f22-b13e-1c1d47875303
-   |     |     |    hasNumericalData: 10
-   |     |     |_Relationship emmo.hasReferenceUnit:
-   |     |       -  emmo.Metre cuds object:
-   |     |       .  uuid: 8de6607f-30b1-4c23-a4a9-b20964bcc194
-   |     |       .  hasSymbolData: m
-   |     |       .   |_Relationship emmo.hasPhysicalDimension:
-   |     |       .     -  emmo.LengthDimension cuds object:
-   |     |       .        uuid: 13389cdb-9feb-45dd-8b6f-903344cbe190
-   |     |       -  emmo.Milli cuds object:
-   |     |          uuid: 3b838849-091f-4530-8ca5-2c6fcdc31ea6
-   |     |          hasSymbolData: m
-   |     |_Relationship emmo.hasZLength:
-   |     | -  emmo.Length cuds object:
-   |     |    uuid: d6060369-1c9e-4324-81dd-9acb539f120f
-   |     |     |_Relationship emmo.hasQuantityValue:
-   |     |     | -  emmo.Real cuds object:
-   |     |     |    uuid: 3c355bcd-37be-4410-8be1-22215b31f397
+   |     |     | -  emmo.Integer cuds object:
+   |     |     |    uid: 5358418b-8b30-4ca9-baea-0e8c4fd7a1f6
    |     |     |    hasNumericalData: 150
    |     |     |_Relationship emmo.hasReferenceUnit:
    |     |       -  emmo.Metre cuds object:
-   |     |       .  uuid: a0ccb3d1-bc72-401c-80ca-c39304844cbe
-   |     |       .  hasSymbolData: m
-   |     |       .   |_Relationship emmo.hasPhysicalDimension:
-   |     |       .     -  emmo.LengthDimension cuds object:
-   |     |       .        uuid: b7a8836e-765d-4653-9383-f10fda339495
-   |     |       -  emmo.Milli cuds object:
-   |     |          uuid: ea57e239-88f9-4bd1-8c5e-0b92027fa9ab
+   |     |          uid: 271061e4-defe-49b2-b9fd-26cc68cb8990
+   |     |          hasSymbolData: m
+   |     |_Relationship emmo.hasZLength:
+   |     | -  emmo.Length cuds object:
+   |     |    uid: dfa298c0-2952-4239-8ad4-7c2b26db2870
+   |     |     |_Relationship emmo.hasQuantityValue:
+   |     |     | -  emmo.Integer cuds object:
+   |     |     |    uid: 988de696-467d-4a25-93f2-08b663e24ee5
+   |     |     |    hasNumericalData: 930
+   |     |     |_Relationship emmo.hasReferenceUnit:
+   |     |       -  emmo.Metre cuds object:
+   |     |          uid: 36033e56-3250-4987-9261-7a6d187b66b8
    |     |          hasSymbolData: m
    |     |_Relationship emmo.standsFor:
-   |       -  emmo.Rectangle cuds object:
-   |          uuid: c1f05768-bd1c-4533-b16f-39b3029ab653
+   |       -  emmo.Mold cuds object:
+   |          uid: 6be5c0d5-77a3-4fc9-b3be-44cf7eb46aca
+   |           |_Relationship emmo.hasSpatialDirectPart:
+   |             -  emmo.Filling cuds object:
+   |                uid: b7e71658-dc81-4ef8-beb1-8fe705d57930
+   |                 |_Relationship emmo.hasQuantitativeProperty:
+   |                   -  emmo.FillingFraction cuds object:
+   |                      uid: 3b2ac035-6494-435e-94a0-bf6049183083
+   |                       |_Relationship emmo.hasQuantityValue:
+   |                       | -  emmo.Real cuds object:
+   |                       |    uid: 0842b20e-e1b2-451d-ac3c-0ebc6164f138
+   |                       |_Relationship emmo.hasReferenceUnit:
+   |                         -  emmo.RatioQuantity cuds object:
+   |                            uid: ccbb0b6e-5262-454e-b8f7-aa51b7f24229
    |_Relationship emmo.hasOutput:
-   | -  emmo.MeshData cuds object:
-   |    uuid: d93dc3f2-9157-4ce6-b52b-f47c2f62a669
-   |     |_Relationship emmo.hasSign:
-   |     | -  emmo.File cuds object:
-   |     |    uuid: 28f7a919-1572-4c77-a04d-9e70a0484e32
-   |     |     |_Relationship emmo.hasSign:
-   |     |       -  emmo.DirectorySequence cuds object:
-   |     |       .  uuid: 69ef1fcb-cc15-422d-99da-363cc6d4a2e2
-   |     |       .   |_Relationship emmo.hasSpatialDirectPart:
-   |     |       .   | -  emmo.Directory cuds object:
-   |     |       .   | .  uuid: 25fbcc95-c3e7-41d6-b4a2-3b1a94dc9749
-   |     |       .   | .   |_Relationship emmo.hasSign:
-   |     |       .   | .     -  emmo.String cuds object:
-   |     |       .   | .        uuid: cb949958-9821-4ce5-bc58-e8c86ef5b8d5
-   |     |       .   | .        hasSymbolData: tmpy1cnsxds
-   |     |       .   |_Relationship emmo.hasSpatialFirst:
-   |     |       .     -  emmo.Directory cuds object:
-   |     |       .        uuid: 4a329c23-cc43-49d6-98fe-5d8b8f92dd1e
-   |     |       .         |_Relationship emmo.hasSign:
-   |     |       .         | -  emmo.String cuds object:
-   |     |       .         |    uuid: 31836603-ff5b-44da-aa95-cb3506b1998b
-   |     |       .         |    hasSymbolData: /tmp
-   |     |       .         |_Relationship emmo.hasSpatialNext:
-   |     |       .           -  emmo.Directory cuds object:
-   |     |       .              uuid: 25fbcc95-c3e7-41d6-b4a2-3b1a94dc9749
-   |     |       .              (already printed)
-   |     |       -  emmo.STL cuds object:
-   |     |       .  uuid: a422a69a-53bd-4bf4-9479-6e7390fbda64
-   |     |       -  emmo.String cuds object:
-   |     |          uuid: edc8c517-bd9a-46ea-b7e0-a9e50ae48bfc
-   |     |          hasSymbolData: new_surface
-   |     |_Relationship emmo.hasSpatialDirectPart:
-   |       -  emmo.Resolution cuds object:
-   |          uuid: d1b7039e-648b-4d30-94ab-820dc1c61971
-   |           |_Relationship emmo.hasQuantityValue:
-   |           | -  emmo.Real cuds object:
-   |           |    uuid: cdca569a-9e40-43ff-9b82-f80bba14f31e
-   |           |    hasNumericalData: 1
-   |           |_Relationship emmo.hasReferenceUnit:
-   |             -  emmo.MeterPerUnitOne cuds object:
-   |             .  uuid: 94d610c7-3c76-4193-a691-1ee1df94b2e6
-   |             .  hasSymbolData: "m/cell"
-   |             .   |_Relationship emmo.hasPhysicalDimension:
-   |             .     -  emmo.ResolutionDimension cuds object:
-   |             .        uuid: fa706511-42d9-415c-b10d-6715b96f4cf4
-   |             -  emmo.Milli cuds object:
-   |                uuid: 3e096513-bfbe-4235-b634-6cbf87ba61d2
-   |                hasSymbolData: m
+   | -  emmo.TriangleMesh cuds object:
+   |    uid: 26bac46a-b75a-484e-a356-59a8661e1cfc
+   |     |_Relationship emmo.standsFor:
+   |       -  emmo.Cylinder cuds object:
+   |          uid: b96002fb-9b61-4ad4-802c-710aa70ce682
+   |          (already printed)
    |_Relationship emmo.hasProperParticipant:
-     -  emmo.FillingData cuds object:
-     .  uuid: 6bdfa23e-77b1-4876-8409-7c6bfb19b845
-     .   |_Relationship emmo.hasSpatialDirectPart:
-     .     -  emmo.FillingFraction cuds object:
-     .     .  uuid: a65b0245-6578-4bb2-9e6e-70f015ea2cc3
-     .     .   |_Relationship emmo.hasQuantityValue:
-     .     .   | -  emmo.Real cuds object:
-     .     .   |    uuid: 6562d18c-a981-458d-83c8-c53db9d56b4e
-     .     .   |    hasNumericalData: 0.5
-     .     .   |_Relationship emmo.hasReferenceUnit:
-     .     .     -  emmo.VolumeFractionUnit cuds object:
-     .     .        uuid: 03366452-4cfe-4bae-8ae9-3b9f9df9e0c9
-     .     .         |_Relationship emmo.hasPhysicalDimension:
-     .     .           -  emmo.DimensionOne cuds object:
-     .     .              uuid: a1a778c6-6ecd-4358-85ac-e3d156873859
      -  emmo.GMSH cuds object:
-     .  uuid: 32b4a27a-5daf-4611-8cd6-81a49daf8261
+     .  uid: 0ae73cf7-b72a-458e-9ffa-d5f49a969196
 ```
 Further details are provided in the `examples`-directory of this repository.
 
@@ -371,6 +305,7 @@ The container is then providing the mentioned `flask`-app from above as `ENTRYPO
 ## Related projects
 
 - [FORCE](https://www.the-force-project.eu/); Grant agreement number: 721027 <img src="https://www.the-force-project.eu/content/dam/iwm/the-force-project/images/Force_Logo.png" width="60">
+- [OntoTrans](https://ontotrans.eu/); Grant agreement number: 862136 <img src="https://ontotrans.eu/wp-content/uploads/2020/05/ot_logo_rosa_gro%C3%9F.svg"  width="60">
 
 ## License
 

@@ -1,7 +1,9 @@
 import unittest as unittest
+from tempfile import TemporaryDirectory
+import os
 from osp.core.namespaces import emmo
 from osp.wrappers.gmsh_wrapper import GMSHSession, Ontology
-from osp.core.utils import import_cuds
+from osp.core.utils import import_cuds, sparql
 
 
 class TestCylinderGMSHSession(unittest.TestCase):
@@ -15,61 +17,39 @@ class TestCylinderGMSHSession(unittest.TestCase):
         )
 
     def test_mesh_generation(self):
-        for binding_set in self.session.mesh_generation:
-            self.assertTrue(binding_set["comp"].is_a(emmo.MeshGeneration))
+        result = self.session.sparql(self.session.mesh_generation_query)
+        for binding_set in result(**self.session.mesh_generation_datatypes):
             self.assertTrue(binding_set["inp"].is_a(emmo.Cylinder))
-            self.assertTrue(binding_set["mesh"].is_a(emmo.TriangleMesh))
-            self.assertTrue(binding_set["z"].is_a(emmo.Length))
-            self.assertTrue(binding_set["z_unit"].is_a(emmo.Metre))
-            self.assertEqual(binding_set["z_value"].hasNumericalData, 930.0)
-            self.assertTrue(binding_set["z_value"].is_a(emmo.Real))
-            self.assertTrue(binding_set["xy_radius"].is_a(emmo.Length))
-            self.assertTrue(binding_set["xy_radius_value"].is_a(emmo.Real))
-            self.assertTrue(binding_set["xy_radius_unit"].is_a(emmo.Metre))
-            self.assertEqual(binding_set["x"], None)
-            self.assertEqual(binding_set["y"], None)
+            self.assertTrue(binding_set["z_value"].is_a(emmo.Integer))
+            self.assertTrue(binding_set["xy_radius_value"].is_a(emmo.Integer))
+            self.assertEqual(binding_set["z_value"].hasNumericalData, 930)
+            self.assertEqual(binding_set["xy_radius_value"].hasNumericalData, 150)
             self.assertEqual(binding_set["x_value"], None)
             self.assertEqual(binding_set["y_value"], None)
-            self.assertEqual(binding_set["x_unit"], None)
-            self.assertEqual(binding_set["y_unit"], None)
             self.assertEqual(binding_set["x_prefix"], None)
             self.assertEqual(binding_set["y_prefix"], None)
             self.assertEqual(binding_set["z_prefix"], None)
-            self.assertEqual(binding_set["x_conversion"], None)
-            self.assertEqual(binding_set["y_conversion"], None)
-            self.assertEqual(binding_set["z_conversion"], None)
 
     def test_filling_volume(self):
-        for binding_set in self.session.filling_volume:
-            self.assertTrue(binding_set["comp"].is_a(emmo.VolumeComputation))
+        result = self.session.sparql(self.session.filling_volume_query)
+        for binding_set in result(**self.session.filling_volume_datatypes):
             self.assertTrue(binding_set["inp"].is_a(emmo.Filling))
-            self.assertTrue(binding_set["quant"].is_a(emmo.FillingFraction))        
+            self.assertTrue(binding_set["quant"].is_a(emmo.FillingFraction))
             self.assertTrue(binding_set["real"].is_a(emmo.Real))
-            self.assertTrue(binding_set["unit"].is_a(emmo.RatioQuantity))
 
     def test_mesh_volume(self):
-        for binding_set in self.session.mesh_volume:
-            self.assertTrue(binding_set["comp"].is_a(emmo.VolumeComputation))
+        result = self.session.sparql(self.session.mesh_volume_query)
+        for binding_set in result(**self.session.mesh_volume_datatypes):
             self.assertTrue(binding_set["inp"].is_a(emmo.Cylinder))
-            self.assertTrue(binding_set["z"].is_a(emmo.Length))
-            self.assertTrue(binding_set["z_unit"].is_a(emmo.Metre))
-            self.assertEqual(binding_set["z_value"].hasNumericalData, 930.0)
-            self.assertTrue(binding_set["z_value"].is_a(emmo.Real))
-            self.assertTrue(binding_set["xy_radius"].is_a(emmo.Length))
-            self.assertTrue(binding_set["xy_radius_value"].is_a(emmo.Real))
-            self.assertTrue(binding_set["xy_radius_unit"].is_a(emmo.Metre))
-            self.assertEqual(binding_set["x"], None)
-            self.assertEqual(binding_set["y"], None)
+            self.assertTrue(binding_set["z_value"].is_a(emmo.Integer))
+            self.assertTrue(binding_set["xy_radius_value"].is_a(emmo.Integer))
+            self.assertEqual(binding_set["z_value"].hasNumericalData, 930)
+            self.assertEqual(binding_set["xy_radius_value"].hasNumericalData, 150)
             self.assertEqual(binding_set["x_value"], None)
             self.assertEqual(binding_set["y_value"], None)
-            self.assertEqual(binding_set["x_unit"], None)
-            self.assertEqual(binding_set["y_unit"], None)
             self.assertEqual(binding_set["x_prefix"], None)
             self.assertEqual(binding_set["y_prefix"], None)
             self.assertEqual(binding_set["z_prefix"], None)
-            self.assertEqual(binding_set["x_conversion"], None)
-            self.assertEqual(binding_set["y_conversion"], None)
-            self.assertEqual(binding_set["z_conversion"], None)
 
     def test_run_session(self):
         with TemporaryDirectory() as temp_dir:
@@ -90,3 +70,8 @@ class TestCylinderGMSHSession(unittest.TestCase):
                 binding_set["file_name"].hasSymbolData = "test_file"
                 binding_set["file_path"].hasSymbolData = temp_dir
             self.session.run()
+            self.assertTrue(
+                os.path.exists(
+                    os.path.join(temp_dir, "test_file.stl")
+                )
+            )

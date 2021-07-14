@@ -46,94 +46,101 @@ class GMSHSession(WrapperSession, GMSHSparqlBackend):
         # self._assign_volume()
     
     def run_mesh_generations(self):
-        for binding_set in self.mesh_generation:
-            if binding_set["comp"]:
+        result = self.sparql(self.mesh_generation_query)
+        for binding_set in result(**self.mesh_generation_datatypes):
+            if binding_set["inp"]:
                 if binding_set["inp"].is_a(emmo.Rectangle):
-                    write_path = self.prepare_rectangle(binding_set)
+                    self._prepare_rectangle(binding_set)
                 elif binding_set["inp"].is_a(emmo.Cylinder):
-                    write_path = self.prepare_cylinder(binding_set)
-                self.geometry.write(write_path)
-
-    def prepare_rectangle(self, binding_set):
-        parameters = dict()
-        for ax in ["x", "y", "z"]:
-            if binding_set[f"{ax}_conversion"]:
-                parameters[f"{ax}_length"] = self._to_meters(
-                    binding_set[f"{ax}_value"],
-                    binding_set[f"{ax}_conversion"]
+                    self._prepare_cylinder(binding_set)
+                self.geometry.write_mesh(
+                    self._set_full_target_path(binding_set)
                 )
-            else:
-                parameters[f"{ax}_length"] = binding_set[f"{ax}_value"]
-        parameters["unit"] = binding_set["m"]
-        self.geometry = Rectangle(**parameters)
-        return os.path.join(
-            binding_set["file_path"].hasSymbolData, 
-            binding_set["file"].hasSymbolData + binding_set["file_format"].hasSymbolData
+
+    def _prepare_rectangle(self, binding_set):
+        self.geometry = RectangularMesh(
+            **self._set_engine_inputs(binding_set, ["x", "y", "z"])
+        )
+ 
+    def _prepare_cylinder(self, binding_set):
+        self.geometry = CylinderMesh(
+            **self._set_engine_inputs(binding_set, ["xy_radius", "z"])
         )
 
-    def prepare_cylinder(self, binding_set):
+    def _set_engine_inputs(self, binding_set, axis_list):
         parameters = dict()
-        for ax in ["xy_radius", "z"]:
-            if binding_set[f"{ax}_conversion"]:
-                parameters[f"{ax}_length"] = self._to_meters(
-                    binding_set[f"{ax}_value"],
-                    binding_set[f"{ax}_conversion"]
-                )
-            else:
-                parameters[f"{ax}_length"] = binding_set[f"{ax}_value"]
-        parameters["unit"] = binding_set["m"]
-        self.geometry = Cylinder(**parameters)
+        prefix = dict()
+        for ax in axis_list:
+            parameters[f"{ax}_length"] = int(binding_set[f"{ax}_value"].hasNumericalData)
+            ax_prefix = binding_set[f"{ax}_prefix"]
+            if ax_prefix:
+                prefix[ax_prefix.oclass] = ax_prefix
+        prefix = list(prefix.values())
+        if len(prefix) > 1:
+            raise ValueError(
+                f"""Instances of <{emmo.Length.iri}> must feature the same SiPrefixes.
+            Passed prefixes are: {prefix}""")
+        elif len(prefix) == 1:
+            parameters["units"] = f"{prefix.hasSymbolData}m"
+        else:
+            parameters["units"] = "m"
+        return parameters
+
+    def _set_full_target_path(self, binding_set):
         return os.path.join(
             binding_set["file_path"].hasSymbolData, 
-            binding_set["file"].hasSymbolData + binding_set["file_format"].hasSymbolData
+            binding_set["file_name"].hasSymbolData + binding_set["file_format"].hasSymbolData
         )
+
+    def get_conversion(self, iri):
+        cuds_query = self.session.load_from_iri(iri)
+        result = self.sparql(self.get_restriction(iri))
+        return [cuds.first(), next(result)["conversion"]]
 
     @property
     def mesh_generation_datatypes(self):
-        return {
-            key: 'cuds' for key in [
-                *['comp', 'inp', 'mesh'],
-                *['x', 'x_value', 'x_unit', 'x_prefix', 'x_conversion'],
-                *['y', 'y_value', 'y_unit', 'y_prefix', 'y_conversion'],
-                *['z', 'z_value', 'z_unit', 'z_prefix', 'z_conversion'],
-                *['xy_radius', 'xy_radius_value', 'xy_radius_unit'],
-                *['xy_radius_prefix', 'xy_radius_conversion'],
-                *['file', 'file_name', 'file_format', 'file_path']
-            ]
-        }
+        parameters = [
+                'inp', 'file_name', 'file_format', 'file_path',
+                'x_value', 'y_value', 'z_value', 'xy_radius_value', 
+                'x_prefix', 'y_prefix', 'z_prefix', 'xy_radius_prefix'
+        ]
+        datatypes = [*['cuds']*8, *[self.get_conversion]*4]
+        mapping = zip(
+            {key: None for key in parameters},
+            datatypes
+        )
+        return dict(mapping)
 
     @property
     def filling_volume_datatypes(self):
         return {
-            key: 'cuds' for key in [
-                'comp', 'inp', 'quant', 'real', 'unit'
-            ]
+            key: 'cuds' for key in ['inp', 'quant', 'real']
         }
 
     @property
     def mesh_volume_datatypes(self):
         return self.mesh_generation_datatypes
 
-    def _assign_volume(self, geo_data):
+    def _assign_volume(self, enity):
         volume = emmo.Volume()
-        real = emmo.Real(hasNumericalData=self._geometry.volume)
+        real = emmo.Real(hasNumericalData=self.geometry.volume)
         unit = emmo.CubicMetre()
         volume.add(real, rel=emmo.hasQuantityValue)
         volume.add(unit, rel=emmo.hasReferenceUnit)
-        if self._geometry.units == 'mm':
+        if self.geometry.units == 'mm':
             volume.add(
                 emmo.Milli(hasSymbolData='m'),
                 rel=emmo.hasReferenceUnit
             )
-        elif self._geometry.units == 'cm':
+        elif self.geometry.units == 'cm':
             volume.add(
                 emmo.Centi(hasSymbolData='c'),
                 rel=emmo.hasReferenceUnit
             )
-        geo_data.add(volume, rel=emmo.hasQuantitativeProperty)
+        entity.add(volume, rel=emmo.hasQuantitativeProperty)
 
-    def _assign_inside_location(self, mesh_data):
-        inside_location = mesh_data.get(oclass=emmo.InsidePosition)
+    def _assign_inside_location(self, mesh):
+        inside_location = mesh.get(oclass=emmo.InsidePosition)
         if not inside_location:
             previous_length = list()
             inside_point = emmo.InsidePosition()
@@ -156,14 +163,4 @@ class GMSHSession(WrapperSession, GMSHSparqlBackend):
                     )
                 previous_length.append(length)
                 inside_point.add(length, rel=relation)
-            mesh_data.add(inside_point)
-
-    def _to_meters(self, value, conversion):
-        return float(
-            np.product(
-                (
-                    Decimal(value),
-                    Decimal(conversion)
-                )
-            )
-        )
+            mesh.add(inside_point)
