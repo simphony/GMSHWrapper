@@ -136,14 +136,16 @@ class RectangularMesh(BaseMesh):
         return self.x_length * self.y_length * self.z_length
 
     def write_mesh(self, target_path):
-        self._write_geo(target_path)
-        self._write_stl(target_path)
+        self.directory_path = os.path.dirname(target_path)
+        self.target_path = target_path
+        self._write_geo()
+        self._write_stl()
         self._calc_properties()
 
-    def _write_geo(self, target_path):
-        target_geo = os.path.join(target_path, 'new_surface.geo')
+    def _write_geo(self):
+        self.target_geo = os.path.join(self.directory_path, 'new_surface.geo')
         with open(self.source_geo, "r") as template,\
-                open(target_geo, "w") as file:
+                open(self.target_geo, "w") as file:
             for line in template:
                 if "x_length = " in line:
                     line = f"x_length = {self.x_length};\n"
@@ -165,17 +167,11 @@ class RectangularMesh(BaseMesh):
             ]
         )
 
-    def _write_stl(self, target_path):
-        target_geo = os.path.join(
-            target_path, 'new_surface.geo'
-        )
-        target_stl = os.path.join(
-            target_path, 'new_surface.stl'
-        )
+    def _write_stl(self):
         gmsh.initialize()
-        gmsh.open(target_geo)
+        gmsh.open(self.target_geo)
         gmsh.model.mesh.generate(3)
-        gmsh.write(target_stl)
+        gmsh.write(self.target_path)
         gmsh.finalize()
 
     def _calc_properties(self):
@@ -200,7 +196,7 @@ class CylinderMesh(BaseMesh):
 
     direction = Tuple((0, 0, 1.0))
 
-    xy_radius = Int(150)
+    xy_radius_length = Int(150)
 
     source_geo = os.path.join(
         os.path.dirname(__file__),
@@ -210,52 +206,48 @@ class CylinderMesh(BaseMesh):
 
     # OVERRIDE
     def _get_volume(self):
-        return np.pi * self.xy_radius**2 * self.z_length
+        return np.pi * self.xy_radius_length**2 * self.z_length
 
     # OVERRIDE
     def _get_filling_extent(self):
         return extent(
             min_extent=[
-                -self.xy_radius,
-                -self.xy_radius,
+                -self.xy_radius_length,
+                -self.xy_radius_length,
                 0
             ],
             max_extent=[
-                self.xy_radius,
-                self.xy_radius,
+                self.xy_radius_length,
+                self.xy_radius_length,
                 self.z_length * self.filling_fraction
             ]
         )
 
     def write_mesh(self, target_path):
-        self._write_geo(target_path)
-        self._write_stl(target_path)
+        self.directory_path = os.path.dirname(target_path)
+        self.target_path = target_path
+        self._write_geo()
+        self._write_stl()
         self._calc_properties()
 
-    def _write_geo(self, target_path):
-        target_geo = os.path.join(target_path, 'new_surface.geo')
+    def _write_geo(self):
+        self.target_geo = os.path.join(self.directory_path, 'new_surface.geo')
         with open(self.source_geo, "r") as template,\
-                open(target_geo, "w") as file:
+                open(self.target_geo, "w") as file:
             for line in template:
                 if "xy_radius = " in line:
-                    line = f"xy_radius = {self.xy_radius};\n"
+                    line = f"xy_radius = {self.xy_radius_length};\n"
                 elif "z_length = " in line:
                     line = f"z_length = {self.z_length};\n"
                 elif "resolution = " in line:
                     line = f"resolution = {self.resolution};\n"
                 file.write(line)
 
-    def _write_stl(self, target_path):
-        target_geo = os.path.join(
-            target_path, 'new_surface.geo'
-        )
-        target_stl = os.path.join(
-            target_path, 'new_surface.stl'
-        )
+    def _write_stl(self):
         gmsh.initialize()
-        gmsh.open(target_geo)
+        gmsh.open(self.target_geo)
         gmsh.model.mesh.generate(3)
-        gmsh.write(target_stl)
+        gmsh.write(self.target_path)
         gmsh.finalize()
 
     def _calc_properties(self):
@@ -264,13 +256,13 @@ class CylinderMesh(BaseMesh):
         ]
         self.max_extent = extent(
             min_extent=[
-                -self.xy_radius,
-                -self.xy_radius,
+                -self.xy_radius_length,
+                -self.xy_radius_length,
                 0
             ],
             max_extent=[
-                self.xy_radius,
-                self.xy_radius,
+                self.xy_radius_length,
+                self.xy_radius_length,
                 self.z_length
             ]
         )
