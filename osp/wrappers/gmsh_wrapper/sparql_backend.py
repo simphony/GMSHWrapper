@@ -16,17 +16,36 @@ class GMSHSparqlBackend(SPARQLBackend):
 
 
     @property
+    def mesh_conversion_query(self):
+        return f"""
+        SELECT * WHERE {{
+            ?comp rdf:type <{emmo.MeshParameterConversion.iri}> ;
+                           <{emmo.hasInput.iri}> ?inp ;
+                           <{emmo.hasOutput.iri}> ?outp .
+            ?inp rdf:type <{emmo.TriangleMesh.iri}> .
+            ?outp rdf:type <{emmo.CartesianMesh.iri}> ;
+                  <{emmo.hasQuantitativeProperty.iri}> ?resolution .
+            ?resolution rdf:type <{emmo.Resolution.iri}> ;
+                        <{emmo.hasQuantityValue.iri}> ?resolution_value ; 
+                        <{emmo.hasReferenceUnit.iri}> ?resolution_unit .
+            ?resolution_value rdf:type <{emmo.Real.iri}> . 
+            ?resolution_unit rdf:type <{emmo.MeterPerUnitOne.iri}> . 
+        }}
+        """
+
+
+    @property
     def filling_volume_query(self):
         return f"""
         SELECT * WHERE {{
-            ?comp rdf:type <{emmo.VolumeComputation.iri}> .
-            ?comp <{emmo.hasInput.iri}> ?inp .
-            ?inp rdf:type <{emmo.Filling.iri}> .
-            ?inp <{emmo.hasQuantitativeProperty.iri}> ?quant.
-            ?quant rdf:type <{emmo.FillingFraction.iri}> .
-            ?quant <{emmo.hasQuantityValue.iri}> ?real .
+            ?comp rdf:type <{emmo.VolumeComputation.iri}> ;
+                  <{emmo.hasInput.iri}> ?inp .
+            ?inp rdf:type <{emmo.Filling.iri}> ;
+                 <{emmo.hasQuantitativeProperty.iri}> ?quant .
+            ?quant rdf:type <{emmo.FillingFraction.iri}> ;
+                   <{emmo.hasQuantityValue.iri}> ?real ;
+                   <{emmo.hasReferenceUnit.iri}> ?unit .
             ?real rdf:type <{emmo.Real.iri}> .
-            ?quant <{emmo.hasReferenceUnit.iri}> ?unit
         }}
         """
 
@@ -34,9 +53,9 @@ class GMSHSparqlBackend(SPARQLBackend):
     def mesh_generation_query(self):
         return f"""
         SELECT * WHERE {{
-            ?comp rdf:type <{emmo.MeshGeneration.iri}> .
-            ?comp <{emmo.hasInput.iri}> ?inp .
-            ?comp <{emmo.hasOutput.iri}> ?mesh . 
+            ?comp rdf:type <{emmo.MeshGeneration.iri}> ;
+                  <{emmo.hasInput.iri}> ?inp ;
+                  <{emmo.hasOutput.iri}> ?mesh . 
             ?inp rdf:type ?inp_type .
             ?inp_type rdfs:subClassOf* <{emmo.TwoManifold.iri}>
             {self.geometry_query} .
@@ -79,37 +98,36 @@ class GMSHSparqlBackend(SPARQLBackend):
 
     @property
     def rectangle_query(self):
-        return f"""
-        ?inp rdf:type <{emmo.Rectangle.iri}> .
-        
-        ?inp <{emmo.hasXLength.iri}> ?x .
-        ?x rdf:type <{emmo.Length.iri}> .
-        ?x <{emmo.hasQuantityValue.iri}> ?x_value .
-        ?x <{emmo.hasReferenceUnit.iri}> ?x_unit .
+        return f""" 
+        ?inp rdf:type <{emmo.Rectangle.iri}> ;
+             <{emmo.hasXLength.iri}> ?x ;
+             <{emmo.hasYLength.iri}> ?y ;
+             <{emmo.hasZLength.iri}> ?z .
+
+        ?x rdf:type <{emmo.Length.iri}> ;
+           <{emmo.hasQuantityValue.iri}> ?x_value ;
+           <{emmo.hasReferenceUnit.iri}> ?x_unit .
+        ?y rdf:type <{emmo.Length.iri}> ;
+           <{emmo.hasQuantityValue.iri}> ?y_value ;
+           <{emmo.hasReferenceUnit.iri}> ?y_unit .
+        ?z rdf:type <{emmo.Length.iri}> ;
+           <{emmo.hasQuantityValue.iri}> ?z_value ;
+           <{emmo.hasReferenceUnit.iri}> ?z_unit .
+
+        ?y_value rdf:type <{emmo.Integer.iri}> .
+        ?y_unit rdf:type <{emmo.Metre.iri}>  .
         ?x_value rdf:type <{emmo.Integer.iri}>  .
         ?x_unit rdf:type <{emmo.Metre.iri}>  .
+        ?z_value rdf:type <{emmo.Integer.iri}> .
+        ?z_unit rdf:type <{emmo.Metre.iri}>  .
 
         optional {{
             {self.x_conversion}
         }} .
 
-        ?inp <{emmo.hasYLength.iri}> ?y .
-        ?y rdf:type <{emmo.Length.iri}> .
-        ?y <{emmo.hasQuantityValue.iri}> ?y_value .
-        ?y <{emmo.hasReferenceUnit.iri}> ?y_unit .
-        ?y_value rdf:type <{emmo.Integer.iri}> .
-        ?y_unit rdf:type <{emmo.Metre.iri}>  .
-
         optional {{
             {self.y_conversion}
         }} .
-
-        ?inp <{emmo.hasZLength.iri}> ?z .
-        ?z rdf:type <{emmo.Length.iri}> .
-        ?z <{emmo.hasQuantityValue.iri}> ?z_value .
-        ?z <{emmo.hasReferenceUnit.iri}> ?z_unit .
-        ?z_value rdf:type <{emmo.Integer.iri}> .
-        ?z_unit rdf:type <{emmo.Metre.iri}>  .
 
         optional {{
             {self.z_conversion}
@@ -119,25 +137,25 @@ class GMSHSparqlBackend(SPARQLBackend):
     @property
     def cylinder_query(self):
         return f"""
-        ?inp rdf:type <{emmo.Cylinder.iri}> .
+        ?inp rdf:type <{emmo.Cylinder.iri}> ;
+             <{emmo.hasZLength.iri}> ?z ;
+             <{emmo.hasXYRadius.iri}> ?xy_radius .
 
-        ?inp <{emmo.hasXYRadius.iri}> ?xy_radius .
-        ?xy_radius rdf:type <{emmo.Length.iri}> .
-        ?xy_radius <{emmo.hasQuantityValue.iri}> ?xy_radius_value .
-        ?xy_radius <{emmo.hasReferenceUnit.iri}> ?xy_radius_unit .
+        ?xy_radius rdf:type <{emmo.Length.iri}> ;
+                   <{emmo.hasQuantityValue.iri}> ?xy_radius_value ;
+                   <{emmo.hasReferenceUnit.iri}> ?xy_radius_unit .
+        ?z rdf:type <{emmo.Length.iri}> ;
+           <{emmo.hasQuantityValue.iri}> ?z_value ;
+           <{emmo.hasReferenceUnit.iri}> ?z_unit .
+
         ?xy_radius_value rdf:type <{emmo.Integer.iri}> .
         ?xy_radius_unit rdf:type <{emmo.Metre.iri}>  .
+        ?z_value rdf:type <{emmo.Integer.iri}> .
+        ?z_unit rdf:type <{emmo.Metre.iri}>  .
 
         optional {{
             {self.radius_conversion}
         }}  .
-
-        ?inp <{emmo.hasZLength.iri}> ?z .
-        ?z rdf:type <{emmo.Length.iri}> .
-        ?z <{emmo.hasQuantityValue.iri}> ?z_value .
-        ?z <{emmo.hasReferenceUnit.iri}> ?z_unit .
-        ?z_value rdf:type <{emmo.Integer.iri}> .
-        ?z_unit rdf:type <{emmo.Metre.iri}>  .
 
         optional {{
             {self.z_conversion}
@@ -180,13 +198,13 @@ class GMSHSparqlBackend(SPARQLBackend):
         return f"""{self.prefixes}
         SELECT * WHERE {{
             {prefix_iri} rdfs:subClassOf* ?restriction .
-            ?restriction rdf:type owl:Restriction .
-            ?restriction owl:onProperty ?property .
+            ?restriction rdf:type owl:Restriction ;
+                         owl:onProperty ?property ;
+                         owl:allValuesFrom ?restriction2 .
             ?property owl:inverseOf <{emmo.hasVariable.iri}> .
-            ?restriction owl:allValuesFrom ?restriction2 .
-            ?restriction2 rdf:type owl:Restriction .
-            ?restriction2 owl:onProperty <{emmo.hasNumericalData.iri}> .
-            ?restriction2 owl:hasValue ?conversion
+            ?restriction2 rdf:type owl:Restriction ;
+                          owl:onProperty <{emmo.hasNumericalData.iri}> ;
+                          owl:hasValue ?conversion .
         }}
         """
 
@@ -194,11 +212,11 @@ class GMSHSparqlBackend(SPARQLBackend):
     def mesh_file_query(self):
         return f"""
         ?mesh <{emmo.standsFor.iri}> ?inp .
-        ?file <{emmo.hasProperty.iri}> ?mesh .
+        ?file <{emmo.hasProperty.iri}> ?mesh ;
+              <{emmo.hasProperty.iri}> ?file_name ;
+              <{emmo.hasProperty.iri}> ?file_format ;
+              <{emmo.hasProperty.iri}> ?file_path .
         ?mesh rdf:type <{emmo.TriangleMesh.iri}> .
-        ?file <{emmo.hasProperty.iri}> ?file_name .
-        ?file <{emmo.hasProperty.iri}> ?file_format .
-        ?file <{emmo.hasProperty.iri}> ?file_path .
         ?file_name rdf:type <{emmo.String.iri}> .
         ?file_path rdf:type <{emmo.UnixPath.iri}> .
         ?file_format rdf:type <{emmo.STL.iri}>   .     

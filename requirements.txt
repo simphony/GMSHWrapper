@@ -1,4 +1,4 @@
 gmsh==4.7.1
 traits==6.1.1
 flake8==3.8.4
-osp-core @ git+https://github.com/simphony/osp-core.git@dev
+osp-core @ git+https://github.com/simphony/osp-core.git@v3.5.4-beta

@@ -39,6 +39,7 @@ class GMSHSession(WrapperSession, GMSHSparqlBackend):
     # OVERRIDE
     def run(self):
         self.run_mesh_generations()
+        self.run_mesh_conversions()
         # TODO
         # self._parse_extent(self._geometry.max_extent)
         # self._parse_extent(self._geometry.filling_extent)
@@ -56,6 +57,25 @@ class GMSHSession(WrapperSession, GMSHSparqlBackend):
                 self.geometry.write_mesh(
                     self._set_full_target_path(binding_set)
                 )
+
+    def run_mesh_conversions(self):
+        result = self.sparql(self.mesh_conversion_query)
+        for binding_set in result(**self.mesh_conversion_datatypes):
+            if binding_set["inp"]:
+                self._add_number_of_elements(binding_set)
+
+    def _add_number_of_elements(self, binding_set):
+        for axis in self.geometry.hexaedric_extent.keys():
+            rel = emmo[f"hasNumberOf{axis.upper()}Elements"]
+            max_value = self.geometry.hexaedric_extent[axis]["max"]
+            min_value = self.geometry.hexaedric_extent[axis]["min"]
+            integer = int(max_value - min_value)
+            n_elements = emmo.hasNumberOfElements()
+            unit = emmo.PureNumberUnit()            
+            n_elements_integer = emmo.Integer(hasNumericalData=integer)
+            n_elements.add(n_elements_integer, rel=emmo.hasQuantityValue)
+            n_elements.add(unit, rel=emmo.hasReferenceUnit)
+            binding_set["outp"].add(n_elements, rel=rel)
 
     def _prepare_rectangle(self, binding_set):
         self.geometry = RectangularMesh(
@@ -100,9 +120,21 @@ class GMSHSession(WrapperSession, GMSHSparqlBackend):
     @property
     def mesh_generation_datatypes(self):
         parameters = [
-                'inp', 'file_name', 'file_format', 'file_path',
-                'x_value', 'y_value', 'z_value', 'xy_radius_value', 
-                'x_prefix', 'y_prefix', 'z_prefix', 'xy_radius_prefix'
+            'inp', 'file_name', 'file_format', 'file_path',
+            'x_value', 'y_value', 'z_value', 'xy_radius_value', 
+            'x_prefix', 'y_prefix', 'z_prefix', 'xy_radius_prefix'
+        ]
+        datatypes = [*['cuds']*8, *[self.get_conversion]*4]
+        mapping = zip(
+            {key: None for key in parameters},
+            datatypes
+        )
+        return dict(mapping)
+
+    @property
+    def mesh_conversion_datatypes(self):
+        parameters = [
+            'inp', 'outp', 'resolution_value', 'resolution_unit'
         ]
         datatypes = [*['cuds']*8, *[self.get_conversion]*4]
         mapping = zip(
