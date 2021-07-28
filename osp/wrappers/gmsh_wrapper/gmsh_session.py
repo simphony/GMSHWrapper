@@ -25,7 +25,7 @@ class GMSHSession(WrapperSession, GMSHSparqlBackend):
     def __init__(self, engine=None, **kwargs):
         super().__init__(engine, **kwargs)
         self.graph.load(
-            Ontology.get_owl("gmshwrapper-inferred")
+            Ontology.get_owl("emmo_cfd-inferred")
         )
 
     # OVERRIDE

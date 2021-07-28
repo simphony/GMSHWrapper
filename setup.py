@@ -9,7 +9,7 @@ import json
 
 requirements_file = 'requirements.txt'
 wrapper_path = ["osp", "wrappers", "gmsh_wrapper"]
-yml_path = ["inferred", "gmshwrapper.yml"]
+yml_path = ["inferred", "emmo_cfd.yml"]
 ontology_submodule = ["ontology", "emmo_cfd"]
 ontology_path = [*wrapper_path, "emmo_cfd"]
 wrapper_module = ".".join(wrapper_path)
